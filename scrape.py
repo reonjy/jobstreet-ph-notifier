@@ -6,7 +6,10 @@ Scrapes public job cards from ph.jobstreet.com search result pages.
 Default search (overridable via JOBSTREET_URL / config):
   https://ph.jobstreet.com/non-voice-jobs/in-cebu?pos=1&workarrangement=0&worktype=0
 
-Uses curl_cffi Chrome impersonation so Cloudflare does not block CI runners.
+Strategy:
+  1) curl_cffi Chrome impersonation (fast, works on home IPs)
+  2) Selenium + real Chrome fallback (needed on GitHub Actions - Cloudflare
+     blocks many datacenter IPs even with TLS impersonation)
 
 Personal / research use only. Respect site ToS and rate limits.
 """
@@ -14,6 +17,7 @@ Personal / research use only. Respect site ToS and rate limits.
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import sys
 import time
@@ -27,8 +31,7 @@ from bs4 import BeautifulSoup
 try:
     from curl_cffi import requests as curl_requests
 except ImportError:
-    print("ERROR: curl_cffi is required. Run: pip install -r requirements.txt")
-    sys.exit(1)
+    curl_requests = None  # type: ignore
 
 BASE_URL = "https://ph.jobstreet.com"
 DEFAULT_SEARCH_URL = (
@@ -40,25 +43,35 @@ DEFAULT_MAX_PAGES = 5
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/124.0.0.0 Safari/537.36"
+    "Chrome/125.0.0.0 Safari/537.36"
 )
 
 
 def make_session():
-    """Return a curl_cffi session that impersonates Chrome."""
-    session = curl_requests.Session(impersonate="chrome124")
-    session.headers.update(
-        {
-            "User-Agent": USER_AGENT,
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Accept-Language": "en-PH,en;q=0.9",
-            "Referer": f"{BASE_URL}/",
-        }
-    )
-    return session
+    """Return a curl_cffi session that impersonates Chrome (or None if unavailable)."""
+    if curl_requests is None:
+        return None
+    for profile in ("chrome131", "chrome124", "chrome120"):
+        try:
+            session = curl_requests.Session(impersonate=profile)
+            session.headers.update(
+                {
+                    "User-Agent": USER_AGENT,
+                    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                    "Accept-Language": "en-PH,en;q=0.9",
+                    "Referer": f"{BASE_URL}/",
+                }
+            )
+            session._impersonate = profile  # type: ignore[attr-defined]
+            return session
+        except Exception:
+            continue
+    return None
 
 
 def fetch(session, url: str, delay: float) -> str | None:
+    if session is None:
+        return None
     if delay > 0:
         time.sleep(delay)
     try:
@@ -67,7 +80,9 @@ def fetch(session, url: str, delay: float) -> str | None:
             print(f"  [warn] HTTP {resp.status_code} for {url}")
             return None
         text = resp.text or ""
-        if "Just a moment" in text and "cf-" in text.lower():
+        if "Just a moment" in text and (
+            "cf-" in text.lower() or "cloudflare" in text.lower()
+        ):
             print(f"  [warn] Cloudflare challenge page for {url}")
             return None
         return text
@@ -84,7 +99,6 @@ def clean_text(value: str | None) -> str:
 
 
 def page_url(base_url: str, page: int) -> str:
-    """Add or replace ?page=N on the search URL (page 1 omits page param)."""
     parsed = urlparse(base_url)
     qs = parse_qs(parsed.query, keep_blank_values=True)
     if page <= 1:
@@ -168,11 +182,92 @@ def parse_total_jobs(html: str) -> int | None:
     return None
 
 
+def _create_chrome_driver(headless: bool = True):
+    try:
+        from selenium import webdriver
+        from selenium.webdriver.chrome.options import Options
+        from selenium.webdriver.chrome.service import Service
+    except ImportError as exc:
+        raise RuntimeError(
+            "Selenium not installed. Run: pip install selenium webdriver-manager"
+        ) from exc
+
+    options = Options()
+    if headless:
+        options.add_argument("--headless=new")
+    options.add_argument("--no-sandbox")
+    options.add_argument("--disable-dev-shm-usage")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--window-size=1920,1080")
+    options.add_argument(f"--user-agent={USER_AGENT}")
+    options.add_argument("--lang=en-PH,en")
+    options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    options.add_experimental_option("useAutomationExtension", False)
+    options.add_argument("--log-level=3")
+
+    chrome_bin = os.environ.get("CHROME_BIN") or os.environ.get("CHROME_PATH")
+    if chrome_bin and os.path.isfile(chrome_bin):
+        options.binary_location = chrome_bin
+
+    try:
+        from webdriver_manager.chrome import ChromeDriverManager
+
+        service = Service(ChromeDriverManager().install())
+        driver = webdriver.Chrome(service=service, options=options)
+    except Exception:
+        driver = webdriver.Chrome(options=options)
+
+    driver.set_page_load_timeout(60)
+    try:
+        driver.execute_cdp_cmd(
+            "Page.addScriptToEvaluateOnNewDocument",
+            {
+                "source": (
+                    "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
+                )
+            },
+        )
+    except Exception:
+        pass
+    return driver
+
+
+def fetch_with_selenium(url: str, headless: bool = True, wait_seconds: float = 8.0) -> str | None:
+    print(f"  [selenium] Loading {url}")
+    driver = None
+    try:
+        driver = _create_chrome_driver(headless=headless)
+        driver.get(url)
+        time.sleep(wait_seconds)
+        html = driver.page_source or ""
+        if "Just a moment" in html:
+            time.sleep(10)
+            html = driver.page_source or ""
+        if "Just a moment" in html and len(html) < 20000:
+            print("  [warn] Selenium still on Cloudflare challenge page")
+            return None
+        if not re.search(r"/job/\d+", html) and "article" not in html.lower():
+            driver.execute_script("window.scrollTo(0, document.body.scrollHeight/2);")
+            time.sleep(3)
+            html = driver.page_source or ""
+        return html
+    except Exception as exc:
+        print(f"  [warn] Selenium fetch failed: {exc}")
+        return None
+    finally:
+        if driver is not None:
+            try:
+                driver.quit()
+            except Exception:
+                pass
+
+
 def scrape_search(
     search_url: str | None = None,
     max_pages: int = DEFAULT_MAX_PAGES,
     delay: float = DEFAULT_DELAY,
     session=None,
+    force_selenium: bool | None = None,
 ) -> list[dict]:
     """Scrape one or more result pages for the given search URL."""
     url = (search_url or DEFAULT_SEARCH_URL).strip()
@@ -180,13 +275,40 @@ def scrape_search(
     if session is None:
         session = make_session()
 
+    if force_selenium is None:
+        force_selenium = (os.environ.get("FORCE_SELENIUM") or "").lower() in (
+            "1",
+            "true",
+            "yes",
+            "y",
+        )
+
     all_jobs: list[dict] = []
     print(f"  Search URL: {url}")
 
+    use_selenium = force_selenium
     for page in range(1, max(1, max_pages) + 1):
         page_link = page_url(url, page)
         print(f"  Page {page}: {page_link}")
-        html = fetch(session, page_link, delay if page > 1 else min(delay, 0.5))
+
+        html = None
+        if not use_selenium:
+            html = fetch(session, page_link, delay if page > 1 else min(delay, 0.5))
+            if html is None and page == 1:
+                print("  HTTP scrape blocked/failed - falling back to Selenium Chrome...")
+                use_selenium = True
+
+        if use_selenium:
+            headless = (os.environ.get("HEADLESS") or "true").lower() in (
+                "1",
+                "true",
+                "yes",
+                "y",
+            )
+            html = fetch_with_selenium(page_link, headless=headless)
+            if delay > 0 and page > 1:
+                time.sleep(delay)
+
         if not html:
             break
 
@@ -198,13 +320,27 @@ def scrape_search(
         page_jobs = parse_listing_page(html)
         print(f"  Found {len(page_jobs)} job card(s)")
         if not page_jobs:
-            break
+            if not use_selenium and page == 1:
+                print("  No cards via HTTP - retrying page 1 with Selenium...")
+                use_selenium = True
+                headless = (os.environ.get("HEADLESS") or "true").lower() in (
+                    "1",
+                    "true",
+                    "yes",
+                    "y",
+                )
+                html = fetch_with_selenium(page_link, headless=headless)
+                if html:
+                    page_jobs = parse_listing_page(html)
+                    print(f"  Found {len(page_jobs)} job card(s) via Selenium")
+            if not page_jobs:
+                break
         all_jobs.extend(page_jobs)
 
         if len(page_jobs) < 20:
             break
 
-    if owns_session:
+    if owns_session and session is not None:
         try:
             session.close()
         except Exception:
@@ -225,7 +361,6 @@ def dedupe_jobs(jobs: Iterable[dict]) -> list[dict]:
 
 
 def sort_jobs(jobs: list[dict]) -> list[dict]:
-    """Rough newest-first using listed labels when possible."""
     def score(j: dict) -> tuple:
         listed = (j.get("listed") or "").lower().strip()
         m_h = re.search(r"(\d+)\s*h", listed)
@@ -248,6 +383,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--url", default=DEFAULT_SEARCH_URL, help="Full JobStreet search URL")
     p.add_argument("--max-pages", type=int, default=DEFAULT_MAX_PAGES)
     p.add_argument("--delay", type=float, default=DEFAULT_DELAY)
+    p.add_argument("--selenium", action="store_true", help="Force Selenium Chrome")
     p.add_argument("--json", default=None, help="Optional path to write JSON output")
     return p.parse_args(argv)
 
@@ -257,7 +393,12 @@ def main(argv: list[str] | None = None) -> int:
     print("=" * 56)
     print("  JobStreet PH scraper")
     print("=" * 56)
-    jobs = scrape_search(args.url, max_pages=args.max_pages, delay=args.delay)
+    jobs = scrape_search(
+        args.url,
+        max_pages=args.max_pages,
+        delay=args.delay,
+        force_selenium=args.selenium or None,
+    )
     jobs = sort_jobs(jobs)
     print(f"\nTotal unique jobs: {len(jobs)}")
     for j in jobs[:10]:
