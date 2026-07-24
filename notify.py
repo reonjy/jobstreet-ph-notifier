@@ -155,7 +155,7 @@ def send_telegram_message(
     text: str,
     *,
     button_url: str | None = None,
-    button_text: str = "\U0001f517 Check Job",
+    button_text: str = "Open on Jobstreet",
     disable_preview: bool = True,
 ) -> None:
     payload: dict = {
@@ -172,7 +172,7 @@ def send_telegram_message(
 
 
 def format_job_message(job: dict) -> tuple[str, str | None]:
-    """Rich HTML job card + optional JobStreet URL for the Check Job button."""
+    """Rich HTML job card + optional JobStreet URL for Open on Jobstreet button."""
     title = html.escape(job.get("title") or "Untitled job")
     company = html.escape(job.get("company") or "Not listed")
     location = html.escape(job.get("location") or "Not listed")
@@ -207,7 +207,7 @@ def format_job_message(job: dict) -> tuple[str, str | None]:
         lines.append(f"\U0001f3f7 <b>Class</b>  \u00b7  {class_line}")
     if desc:
         lines.extend(["", f"\U0001f4dd <i>{desc}</i>"])
-    lines.extend(["", "Tap <b>Check Job</b> below to open on JobStreet."])
+    lines.extend(["", "Tap <b>Open on Jobstreet</b> below to view the full post."])
     return "\n".join(lines), (link or None)
 
 
@@ -227,11 +227,11 @@ def test_telegram(token: str, chat_id: str) -> None:
         (
             "\u2705 <b>JobStreet PH notifier is connected</b>\n"
             "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
-            "You will get rich job cards with a "
-            "<b>Check Job</b> button when new listings appear."
+            "You will get rich job cards with an "
+            "<b>Open on Jobstreet</b> button when new listings appear."
         ),
         button_url=sample_url,
-        button_text="\U0001f517 Check Job",
+        button_text="Open on Jobstreet",
     )
 
 
@@ -298,13 +298,13 @@ def run_once(settings: dict, seen: set[str]) -> set[str]:
                     f"\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
                     f"\U0001f4cc Seeded <b>{len(jobs)}</b> current listings "
                     f"(not spammed as separate messages).\n"
-                    f"\U0001f514 You will get a card + <b>Check Job</b> button "
+                    f"\U0001f514 You will get a card + <b>Open on Jobstreet</b> button "
                     f"when <b>new</b> non-voice Cebu jobs appear.\n\n"
                     f"To dump all current matches once, set secret "
                     f"<code>RESEND_ALL=true</code> and re-run."
                 ),
                 button_url=settings.get("search_url") or DEFAULT_SEARCH_URL,
-                button_text="\U0001f50e Open search",
+                button_text="Open on Jobstreet",
             )
             print("  Sent first-run connection status to Telegram.")
         except Exception as exc:
@@ -341,7 +341,7 @@ def run_once(settings: dict, seen: set[str]) -> set[str]:
                 chat_id,
                 text,
                 button_url=button_url,
-                button_text="\U0001f517 Check Job",
+                button_text="Open on Jobstreet",
             )
             sent += 1
             seen.add(job["_id"])
