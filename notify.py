@@ -14,7 +14,10 @@ Usage:
 
 Env / GitHub Actions secrets:
   TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID  (required)
-  JOBSTREET_URL                         (optional search URL)
+  KEYWORDS          (optional) comma list: "non voice, data entry, back office"
+                    empty / unset = default non-voice Cebu search
+  JOBSTREET_LOCATION (optional) default "cebu"
+  JOBSTREET_URL      (optional; only when KEYWORDS empty)
   MAX_PAGES, REQUEST_DELAY_SECONDS
   SEND_ON_FIRST_RUN, RESEND_ALL, MAX_SEND_PER_RUN, STATE_FILE
 """
@@ -34,10 +37,12 @@ import requests
 
 from scrape import (
     DEFAULT_DELAY,
+    DEFAULT_LOCATION,
     DEFAULT_MAX_PAGES,
     DEFAULT_SEARCH_URL,
     make_session,
-    scrape_search,
+    parse_keywords,
+    scrape_keywords,
     sort_jobs,
 )
 
@@ -71,7 +76,9 @@ def load_settings() -> dict:
     if chat_id.lower().startswith("chat_id="):
         chat_id = chat_id.split("=", 1)[1].strip()
 
-    search_url = _env("JOBSTREET_URL", DEFAULT_SEARCH_URL) or DEFAULT_SEARCH_URL
+    search_url = _env("JOBSTREET_URL") or DEFAULT_SEARCH_URL
+    keywords = parse_keywords(os.environ.get("KEYWORDS") if "KEYWORDS" in os.environ else None)
+    location = _env("JOBSTREET_LOCATION", DEFAULT_LOCATION) or DEFAULT_LOCATION
     max_pages = int(_env("MAX_PAGES", str(DEFAULT_MAX_PAGES)) or DEFAULT_MAX_PAGES)
     delay = float(_env("REQUEST_DELAY_SECONDS", str(DEFAULT_DELAY)) or DEFAULT_DELAY)
     interval = float(_env("POLL_INTERVAL_MINUTES", "15") or "15")
@@ -93,6 +100,8 @@ def load_settings() -> dict:
         "telegram_bot_token": token,
         "telegram_chat_id": chat_id,
         "search_url": search_url,
+        "keywords": keywords,
+        "location": location,
         "max_pages": max_pages,
         "request_delay_seconds": delay,
         "poll_interval_minutes": interval,
@@ -186,6 +195,9 @@ def format_job_message(job: dict) -> str:
     ]
     if sub:
         lines.append(f"\U0001f3f7 <b>Class:</b> {sub}")
+    kw = html.escape(job.get("matched_keyword") or "")
+    if kw:
+        lines.append(f"\U0001f511 <b>Keyword:</b> {kw}")
     if desc:
         lines.append(f"\U0001f4dd {desc}")
     if link:
@@ -215,9 +227,16 @@ def run_once(settings: dict, seen: set[str]) -> set[str]:
     resend_all = bool(settings.get("resend_all"))
     send_on_first = bool(settings.get("send_on_first_run"))
     search_url = settings["search_url"]
+    keywords = settings.get("keywords") or []
+    location = settings.get("location") or DEFAULT_LOCATION
 
     print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Polling JobStreet...")
-    print(f"  URL: {search_url}")
+    if keywords:
+        print(f"  Keywords: {', '.join(keywords)}")
+        print(f"  Location: {location}")
+    else:
+        print(f"  Keywords: (default)")
+        print(f"  URL: {search_url}")
     print(
         f"  Options: send_on_first_run={send_on_first} resend_all={resend_all} "
         f"already_seen={len(seen)}"
@@ -225,8 +244,10 @@ def run_once(settings: dict, seen: set[str]) -> set[str]:
 
     session = make_session()
     try:
-        jobs = scrape_search(
+        jobs = scrape_keywords(
+            keywords=keywords,
             search_url=search_url,
+            location=location,
             max_pages=int(settings["max_pages"]),
             delay=float(settings["request_delay_seconds"]),
             session=session,
@@ -365,8 +386,14 @@ def main(argv: list[str] | None = None) -> int:
     seen = load_seen(state_path)
     interval = float(settings["poll_interval_minutes"])
 
+    kws = settings.get("keywords") or []
     print("JobStreet PH -> Telegram notifier")
-    print(f"  URL      : {settings['search_url']}")
+    if kws:
+        print(f"  Keywords : {', '.join(kws)}")
+        print(f"  Location : {settings.get('location') or DEFAULT_LOCATION}")
+    else:
+        print(f"  Keywords : (default non-voice)")
+        print(f"  URL      : {settings['search_url']}")
     print(f"  Max pages: {settings['max_pages']}")
     print(f"  Interval : {interval} min" + (" (single run)" if args.once else ""))
     print(f"  State    : {state_path}")
