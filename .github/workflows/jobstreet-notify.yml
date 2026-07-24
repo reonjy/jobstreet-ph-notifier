@@ -8,7 +8,8 @@
 #   JOBSTREET_URL      (optional) full search URL when KEYWORDS empty
 #   INDEED_URL         (optional) full search URL when KEYWORDS empty
 #   JOBSTREET_LOCATION / INDEED_LOCATION (optional)
-#   ENABLE_JOBSTREET / ENABLE_INDEED (optional; default true)
+#   ENABLE_JOBSTREET (optional; default true on GHA)
+#   ENABLE_INDEED    (optional; default false on GHA — Indeed blocks runner IPs)
 #   RESEND_ALL         (optional) true once to dump current matches
 #
 # External cron (cron-job.org) should POST:
@@ -111,9 +112,12 @@ jobs:
           mkdir -p state
           echo "=== Poll start $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
           echo "Event: ${{ github.event_name }}"
-          # Empty ENABLE_* secrets mean "true" (default both sources on)
+          # Defaults when secrets are empty:
+          #   JobStreet ON (works on GHA)
+          #   Indeed OFF  (Indeed blocks GHA IPs / Cloudflare — enable only if you
+          #                know it works, or use a self-hosted runner / proxy)
           if [ -z "$ENABLE_JOBSTREET" ]; then export ENABLE_JOBSTREET=true; fi
-          if [ -z "$ENABLE_INDEED" ]; then export ENABLE_INDEED=true; fi
+          if [ -z "$ENABLE_INDEED" ]; then export ENABLE_INDEED=false; fi
           echo "ENABLE_JOBSTREET=$ENABLE_JOBSTREET ENABLE_INDEED=$ENABLE_INDEED"
           if [ -z "$KEYWORDS" ]; then
             echo "KEYWORDS empty/unset - default non-voice Cebu on each site"

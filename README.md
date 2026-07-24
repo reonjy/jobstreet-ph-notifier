@@ -31,7 +31,8 @@ python notify.py --once       # both sources → Telegram (needs TELEGRAM_* env)
 | `KEYWORDS` | Optional shared comma list for both sites |
 | `JOBSTREET_URL` | Optional JobStreet URL when KEYWORDS empty |
 | `INDEED_URL` | Optional Indeed URL when KEYWORDS empty |
-| `ENABLE_JOBSTREET` / `ENABLE_INDEED` | Default `true` each |
+| `ENABLE_JOBSTREET` | Default `true` |
+| `ENABLE_INDEED` | Local default `true`; **GHA default `false`** (Indeed blocks runner IPs) |
 | `RESEND_ALL` | Send all current matches once |
 
 Default searches are hard-coded (non-voice + Cebu) when `KEYWORDS` and the URL secrets are empty.
