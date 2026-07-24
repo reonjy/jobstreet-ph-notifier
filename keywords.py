@@ -122,8 +122,6 @@ def resolve_search_urls(
     url = (search_url or "").strip() or DEFAULT_SEARCH_URL
     targets.append(("default", url))
     if include_remote:
-        # Prefer dedicated remote URL; if JOBSTREET_URL already forces
-        # workarrangement, still add a clear remote PH pass for non-voice default.
         targets.append(("default [remote]", DEFAULT_REMOTE_URL))
     return targets
 
