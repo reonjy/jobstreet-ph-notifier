@@ -35,14 +35,16 @@ from pathlib import Path
 
 import requests
 
+from keywords import (
+    DEFAULT_LOCATION,
+    parse_keywords,
+    scrape_keywords,
+)
 from scrape import (
     DEFAULT_DELAY,
-    DEFAULT_LOCATION,
     DEFAULT_MAX_PAGES,
     DEFAULT_SEARCH_URL,
     make_session,
-    parse_keywords,
-    scrape_keywords,
     sort_jobs,
 )
 
@@ -292,7 +294,7 @@ def run_once(settings: dict, seen: set[str]) -> set[str]:
                 (
                     f"\u2705 <b>JobStreet notifier is connected</b>\n"
                     f"Seeded <b>{len(jobs)}</b> current listings (not spammed).\n"
-                    f"You will get a message when <b>new</b> non-voice Cebu jobs appear.\n"
+                    f"You will get a message when <b>new</b> matching jobs appear.\n"
                     f"To dump all current matches once, set secret "
                     f"<code>RESEND_ALL=true</code> and re-run."
                 ),
