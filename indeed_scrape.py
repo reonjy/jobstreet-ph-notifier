@@ -177,57 +177,119 @@ def parse_listing_page(html: str) -> list[dict]:
     return jobs
 
 
+def _indeed_headers() -> dict[str, str]:
+    return {
+        "User-Agent": USER_AGENT,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-PH,en;q=0.9",
+        "Referer": f"{BASE_URL}/",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "same-origin",
+        "Upgrade-Insecure-Requests": "1",
+    }
+
+
+def make_indeed_session():
+    """curl_cffi session with Indeed Referer (not JobStreet)."""
+    session = make_session()
+    if session is not None:
+        try:
+            session.headers.update(_indeed_headers())
+        except Exception:
+            pass
+    return session
+
+
+def fetch_indeed_selenium(url: str, headless: bool = True) -> str | None:
+    """Selenium load tuned for Indeed: wait for job cards, scroll, diagnostics."""
+    print(f"  [selenium/indeed] Loading {url}")
+    driver = None
+    try:
+        from selenium.webdriver.common.by import By
+        from selenium.webdriver.support import expected_conditions as EC
+        from selenium.webdriver.support.ui import WebDriverWait
+
+        from scrape import _create_chrome_driver
+
+        driver = _create_chrome_driver(headless=headless)
+        driver.get(url)
+        try:
+            WebDriverWait(driver, 18).until(
+                EC.presence_of_element_located(
+                    (By.CSS_SELECTOR, "div.job_seen_beacon, a.jcs-JobTitle, [data-jk]")
+                )
+            )
+        except Exception:
+            time.sleep(6)
+        try:
+            driver.execute_script("window.scrollTo(0, document.body.scrollHeight/3);")
+            time.sleep(2)
+        except Exception:
+            pass
+        html = driver.page_source or ""
+        if "job_seen_beacon" not in html and "data-jk" not in html:
+            title = ""
+            try:
+                title = driver.title or ""
+            except Exception:
+                pass
+            print(
+                f"  [warn] Indeed Selenium: no job cards "
+                f"(title={title!r}, html_len={len(html)})"
+            )
+        return html
+    except Exception as exc:
+        print(f"  [warn] Indeed Selenium failed: {exc}")
+        try:
+            return fetch_with_selenium(url, headless=headless, wait_seconds=15.0)
+        except Exception as exc2:
+            print(f"  [warn] Indeed Selenium fallback failed: {exc2}")
+            return None
+    finally:
+        if driver is not None:
+            try:
+                driver.quit()
+            except Exception:
+                pass
+
+
 def fetch_html(session, url: str, delay: float, force_selenium: bool) -> str | None:
+    headless = (os.environ.get("HEADLESS") or "true").lower() in (
+        "1",
+        "true",
+        "yes",
+        "y",
+    )
     if force_selenium:
-        headless = (os.environ.get("HEADLESS") or "true").lower() in (
-            "1",
-            "true",
-            "yes",
-            "y",
-        )
-        return fetch_with_selenium(url, headless=headless)
+        return fetch_indeed_selenium(url, headless=headless)
 
     if delay > 0:
         time.sleep(delay)
     try:
         if session is None:
-            return None
+            print("  [warn] No HTTP session - Selenium for Indeed...")
+            return fetch_indeed_selenium(url, headless=headless)
+        try:
+            session.headers.update(_indeed_headers())
+        except Exception:
+            pass
         resp = session.get(url, timeout=45)
         if resp.status_code != 200:
             print(f"  [warn] Indeed HTTP {resp.status_code} for {url}")
-            # fall back to selenium
-            headless = (os.environ.get("HEADLESS") or "true").lower() in (
-                "1",
-                "true",
-                "yes",
-                "y",
-            )
             print("  Falling back to Selenium for Indeed...")
-            return fetch_with_selenium(url, headless=headless)
+            return fetch_indeed_selenium(url, headless=headless)
         text = resp.text or ""
         if "Just a moment" in text or "captcha" in text.lower()[:2000]:
             print("  [warn] Indeed blocked/challenge - Selenium fallback...")
-            headless = (os.environ.get("HEADLESS") or "true").lower() in (
-                "1",
-                "true",
-                "yes",
-                "y",
-            )
-            return fetch_with_selenium(url, headless=headless)
+            return fetch_indeed_selenium(url, headless=headless)
+        if "job_seen_beacon" not in text and "data-jk" not in text:
+            print("  [warn] Indeed HTML has no job cards - Selenium fallback...")
+            return fetch_indeed_selenium(url, headless=headless)
         return text
     except Exception as exc:
         print(f"  [warn] Indeed fetch failed: {exc}")
-        try:
-            headless = (os.environ.get("HEADLESS") or "true").lower() in (
-                "1",
-                "true",
-                "yes",
-                "y",
-            )
-            return fetch_with_selenium(url, headless=headless)
-        except Exception as exc2:
-            print(f"  [warn] Indeed Selenium failed: {exc2}")
-            return None
+        return fetch_indeed_selenium(url, headless=headless)
 
 
 def scrape_indeed_search(
@@ -242,7 +304,12 @@ def scrape_indeed_search(
     url = _strip_tracking_params(url)
     owns = session is None
     if session is None:
-        session = make_session()
+        session = make_indeed_session()
+    elif session is not None:
+        try:
+            session.headers.update(_indeed_headers())
+        except Exception:
+            pass
 
     # Prefer curl_cffi for Indeed even when JobStreet uses FORCE_SELENIUM
     # (GHA Selenium often gets empty Indeed pages). Force only via
@@ -305,7 +372,12 @@ def scrape_indeed_keywords(
     targets = resolve_indeed_urls(keywords, search_url=search_url, location=location)
     owns = session is None
     if session is None:
-        session = make_session()
+        session = make_indeed_session()
+    else:
+        try:
+            session.headers.update(_indeed_headers())
+        except Exception:
+            pass
     collected: list[dict] = []
     try:
         for label, url in targets:
