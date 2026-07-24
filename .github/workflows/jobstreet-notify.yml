@@ -1,10 +1,12 @@
 # JobStreet PH -> Telegram
-# Polls non-voice Cebu search (or JOBSTREET_URL secret) and notifies on NEW jobs.
+# Polls searches (KEYWORDS or default non-voice Cebu) and notifies on NEW jobs.
 #
 # Secrets:
 #   TELEGRAM_BOT_TOKEN (required)
 #   TELEGRAM_CHAT_ID   (required)
-#   JOBSTREET_URL      (optional) full search URL override
+#   KEYWORDS           (optional) comma list e.g. non voice, data entry
+#   JOBSTREET_LOCATION (optional) default cebu
+#   JOBSTREET_URL      (optional) only when KEYWORDS empty
 #   RESEND_ALL         (optional) true once to dump current matches
 #
 # External cron (cron-job.org) should POST:
@@ -33,7 +35,7 @@ concurrency:
 jobs:
   notify:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -88,12 +90,12 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           JOBSTREET_URL: ${{ secrets.JOBSTREET_URL }}
+          KEYWORDS: ${{ secrets.KEYWORDS }}
+          JOBSTREET_LOCATION: ${{ secrets.JOBSTREET_LOCATION }}
           RESEND_ALL: ${{ secrets.RESEND_ALL }}
-          MAX_PAGES: "3"
+          MAX_PAGES: "2"
           REQUEST_DELAY_SECONDS: "2"
           SEND_ON_FIRST_RUN: "false"
-          # GitHub runner IPs often get HTTP 403 from JobStreet/Cloudflare;
-          # Selenium + real Chrome bypasses that (same idea as CSC notifier).
           FORCE_SELENIUM: "true"
           HEADLESS: "true"
           STATE_FILE: state/seen_jobs.json
@@ -101,10 +103,13 @@ jobs:
           mkdir -p state
           echo "=== Poll start $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
           echo "Event: ${{ github.event_name }}"
-          if [ -z "$JOBSTREET_URL" ]; then
-            echo "JOBSTREET_URL secret empty - using default non-voice Cebu search in code"
+          if [ -z "$KEYWORDS" ]; then
+            echo "KEYWORDS empty/unset - default non-voice Cebu search"
           else
-            echo "JOBSTREET_URL is set (custom search)"
+            echo "KEYWORDS set: $KEYWORDS"
+          fi
+          if [ -n "$JOBSTREET_LOCATION" ]; then
+            echo "JOBSTREET_LOCATION: $JOBSTREET_LOCATION"
           fi
           if [ -f state/seen_jobs.json ]; then
             echo "Seen state file size: $(wc -c < state/seen_jobs.json) bytes"
