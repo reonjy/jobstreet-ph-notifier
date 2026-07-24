@@ -271,6 +271,8 @@ def run_once(settings: dict, seen: set[str]) -> set[str]:
     for j in jobs:
         j["_id"] = job_id(j)
 
+    # jobs is newest-first (sort_jobs). Prefer newest when capping, then reverse
+    # so Telegram shows oldest first and latest at the bottom (no scroll up).
     if resend_all:
         to_send = list(jobs)
         print(f"  RESEND_ALL: will send all {len(to_send)} current match(es)")
@@ -318,9 +320,19 @@ def run_once(settings: dict, seen: set[str]) -> set[str]:
     if len(to_send) > max_send:
         print(
             f"  Capping send list from {len(to_send)} to {max_send} "
-            f"(set MAX_SEND_PER_RUN to raise)"
+            f"(keep newest; set MAX_SEND_PER_RUN to raise)"
         )
         to_send = to_send[:max_send]
+
+    # Oldest first -> newest last = latest post at bottom of Telegram chat
+    to_send = list(reversed(to_send))
+    if to_send:
+        first_listed = to_send[0].get("listed") or "?"
+        last_listed = to_send[-1].get("listed") or "?"
+        print(
+            f"  Send order: oldest first -> newest last "
+            f"(first listed={first_listed!r}, last listed={last_listed!r})"
+        )
 
     print(f"  Sending {len(to_send)} job(s) to Telegram...")
     token = settings["telegram_bot_token"]
