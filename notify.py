@@ -392,7 +392,54 @@ def run_once(settings: dict, seen: set[str]) -> set[str]:
     else:
         to_send = [j for j in jobs if j["_id"] not in seen]
 
+    # True first run (empty cache) OR first time a source appears (e.g. adding
+    # Indeed after JobStreet was already seeded) — seed without spam unless
+    # SEND_ON_FIRST_RUN / RESEND_ALL.
     first_run = len(seen) == 0
+    seed_prefixes: list[str] = []
+    if not first_run and not send_on_first and not resend_all and to_send:
+        for prefix, label in (("js-", "JobStreet"), ("ind-", "Indeed")):
+            if any(j["_id"].startswith(prefix) for j in jobs) and not any(
+                sid.startswith(prefix) for sid in seen
+            ):
+                seed_prefixes.append(prefix)
+                print(
+                    f"  First time seeing {label} IDs — will seed that source "
+                    f"(no spam). Set SEND_ON_FIRST_RUN=true to send instead."
+                )
+        if seed_prefixes:
+            seeded_n = 0
+            remaining: list[dict] = []
+            for j in to_send:
+                if any(j["_id"].startswith(p) for p in seed_prefixes):
+                    seen.add(j["_id"])
+                    seeded_n += 1
+                else:
+                    remaining.append(j)
+            to_send = remaining
+            print(f"  Seeded {seeded_n} new-source job ID(s); remaining new={len(to_send)}")
+            save_seen(state_path, seen)
+            if not to_send:
+                try:
+                    labels = ", ".join(
+                        "Indeed" if p == "ind-" else "JobStreet" for p in seed_prefixes
+                    )
+                    send_telegram_message(
+                        settings["telegram_bot_token"],
+                        settings["telegram_chat_id"],
+                        (
+                            f"✅ <b>Added source(s): {html.escape(labels)}</b>\n"
+                            f"Seeded <b>{seeded_n}</b> current listing(s) "
+                            f"(not spammed).\n"
+                            f"You will get messages when <b>new</b> jobs appear "
+                            f"on that site."
+                        ),
+                    )
+                    print("  Sent new-source seed status to Telegram.")
+                except Exception as exc:
+                    print(f"  [warn] could not send new-source status: {exc}")
+                return seen
+
     if first_run and not send_on_first and not resend_all:
         print(
             f"  First run: seeding {len(jobs)} job IDs (no Telegram spam). "
