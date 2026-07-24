@@ -177,14 +177,14 @@ def format_job_message(job: dict) -> str:
 
     lines = [
         f"<b>JobStreet: {title}</b>",
-        f"<b>Company:</b> {company}",
-        f"<b>Location:</b> {location}",
-        f"<b>Salary:</b> {salary}",
-        f"<b>Type:</b> {etype}",
-        f"<b>Listed:</b> {listed}",
+        f"Company: {company}",
+        f"Location: {location}",
+        f"Salary: {salary}",
+        f"Type: {etype}",
+        f"Listed: {listed}",
     ]
     if sub:
-        lines.append(f"<b>Class:</b> {sub}")
+        lines.append(f"Class: {sub}")
     if desc:
         lines.append(desc)
     if link:
@@ -263,6 +263,21 @@ def run_once(settings: dict, seen: set[str]) -> set[str]:
         for j in jobs:
             seen.add(j["_id"])
         save_seen(state_path, seen)
+        try:
+            send_telegram_message(
+                settings["telegram_bot_token"],
+                settings["telegram_chat_id"],
+                (
+                    f"<b>JobStreet notifier is connected</b>\n"
+                    f"Seeded <b>{len(jobs)}</b> current listings (not spammed).\n"
+                    f"You will get a message when <b>new</b> non-voice Cebu jobs appear.\n"
+                    f"To dump all current matches once, set secret "
+                    f"<code>RESEND_ALL=true</code> and re-run."
+                ),
+            )
+            print("  Sent first-run connection status to Telegram.")
+        except Exception as exc:
+            print(f"  [warn] could not send first-run status: {exc}")
         return seen
 
     if not to_send:
