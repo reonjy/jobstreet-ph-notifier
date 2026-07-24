@@ -149,47 +149,66 @@ def telegram_call(token: str, method: str, payload: dict) -> dict:
     return data
 
 
-def send_telegram_message(token: str, chat_id: str, text: str) -> None:
-    telegram_call(
-        token,
-        "sendMessage",
-        {
-            "chat_id": chat_id,
-            "text": text,
-            "parse_mode": "HTML",
-            "disable_web_page_preview": False,
-        },
-    )
+def send_telegram_message(
+    token: str,
+    chat_id: str,
+    text: str,
+    *,
+    button_url: str | None = None,
+    button_text: str = "\U0001f517 Check Job",
+    disable_preview: bool = True,
+) -> None:
+    payload: dict = {
+        "chat_id": chat_id,
+        "text": text,
+        "parse_mode": "HTML",
+        "disable_web_page_preview": disable_preview,
+    }
+    if button_url:
+        payload["reply_markup"] = {
+            "inline_keyboard": [[{"text": button_text, "url": button_url}]]
+        }
+    telegram_call(token, "sendMessage", payload)
 
 
-def format_job_message(job: dict) -> str:
+def format_job_message(job: dict) -> tuple[str, str | None]:
+    """Rich HTML job card + optional JobStreet URL for the Check Job button."""
     title = html.escape(job.get("title") or "Untitled job")
-    company = html.escape(job.get("company") or "-")
-    location = html.escape(job.get("location") or "-")
+    company = html.escape(job.get("company") or "Not listed")
+    location = html.escape(job.get("location") or "Not listed")
     salary = html.escape(job.get("salary") or "Not stated")
-    etype = html.escape(job.get("employment_type") or "-")
+    etype = html.escape(job.get("employment_type") or "Not stated")
     listed = html.escape(job.get("listed") or "-")
     desc = html.escape(job.get("description") or "")
     if len(desc) > 280:
         desc = desc[:277] + "..."
     sub = html.escape(job.get("sub_classification") or "")
+    classification = html.escape(job.get("classification") or "")
     link = (job.get("link") or "").strip()
 
     lines = [
-        f"<b>JobStreet: {title}</b>",
-        f"Company: {company}",
-        f"Location: {location}",
-        f"Salary: {salary}",
-        f"Type: {etype}",
-        f"Listed: {listed}",
+        "\U0001f195 <b>New JobStreet listing</b>",
+        "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501",
+        f"\U0001f4bc <b>{title}</b>",
+        "",
+        f"\U0001f3e2 <b>Company</b>",
+        f"   {company}",
+        f"\U0001f4cd <b>Location</b>",
+        f"   {location}",
+        f"\U0001f4b0 <b>Salary</b>",
+        f"   {salary}",
+        f"\u23f1 <b>Type</b>  \u00b7  {etype}",
+        f"\U0001f4c5 <b>Listed</b>  \u00b7  {listed}",
     ]
-    if sub:
-        lines.append(f"Class: {sub}")
+    if sub or classification:
+        class_line = sub or classification
+        if sub and classification and sub != classification:
+            class_line = f"{sub} \u00b7 {classification}"
+        lines.append(f"\U0001f3f7 <b>Class</b>  \u00b7  {class_line}")
     if desc:
-        lines.append(desc)
-    if link:
-        lines.append(f'<a href="{html.escape(link)}">Open on JobStreet</a>')
-    return "\n".join(lines)
+        lines.extend(["", f"\U0001f4dd <i>{desc}</i>"])
+    lines.extend(["", "Tap <b>Check Job</b> below to open on JobStreet."])
+    return "\n".join(lines), (link or None)
 
 
 def verify_telegram(token: str, chat_id: str) -> None:
@@ -201,11 +220,18 @@ def verify_telegram(token: str, chat_id: str) -> None:
 
 def test_telegram(token: str, chat_id: str) -> None:
     verify_telegram(token, chat_id)
+    sample_url = "https://ph.jobstreet.com/non-voice-jobs/in-cebu"
     send_telegram_message(
         token,
         chat_id,
-        "JobStreet PH notifier is connected.\n"
-        "You will get messages when new matching jobs appear.",
+        (
+            "\u2705 <b>JobStreet PH notifier is connected</b>\n"
+            "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
+            "You will get rich job cards with a "
+            "<b>Check Job</b> button when new listings appear."
+        ),
+        button_url=sample_url,
+        button_text="\U0001f517 Check Job",
     )
 
 
@@ -268,12 +294,17 @@ def run_once(settings: dict, seen: set[str]) -> set[str]:
                 settings["telegram_bot_token"],
                 settings["telegram_chat_id"],
                 (
-                    f"<b>JobStreet notifier is connected</b>\n"
-                    f"Seeded <b>{len(jobs)}</b> current listings (not spammed).\n"
-                    f"You will get a message when <b>new</b> non-voice Cebu jobs appear.\n"
+                    f"\u2705 <b>JobStreet notifier is connected</b>\n"
+                    f"\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n"
+                    f"\U0001f4cc Seeded <b>{len(jobs)}</b> current listings "
+                    f"(not spammed as separate messages).\n"
+                    f"\U0001f514 You will get a card + <b>Check Job</b> button "
+                    f"when <b>new</b> non-voice Cebu jobs appear.\n\n"
                     f"To dump all current matches once, set secret "
                     f"<code>RESEND_ALL=true</code> and re-run."
                 ),
+                button_url=settings.get("search_url") or DEFAULT_SEARCH_URL,
+                button_text="\U0001f50e Open search",
             )
             print("  Sent first-run connection status to Telegram.")
         except Exception as exc:
@@ -304,7 +335,14 @@ def run_once(settings: dict, seen: set[str]) -> set[str]:
     sent = 0
     for job in to_send:
         try:
-            send_telegram_message(token, chat_id, format_job_message(job))
+            text, button_url = format_job_message(job)
+            send_telegram_message(
+                token,
+                chat_id,
+                text,
+                button_url=button_url,
+                button_text="\U0001f517 Check Job",
+            )
             sent += 1
             seen.add(job["_id"])
             time.sleep(0.4)
