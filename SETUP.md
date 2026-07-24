@@ -31,7 +31,9 @@ non voice, data entry, back office, content moderator
 | `JOBSTREET_URL` | Only when KEYWORDS empty (JobStreet override) |
 | `INDEED_URL` | Only when KEYWORDS empty (Indeed override) |
 | `ENABLE_JOBSTREET` | Default `true` — set `false` to skip JobStreet |
-| `ENABLE_INDEED` | Default `true` — set `false` to skip Indeed |
+| `ENABLE_INDEED` | **Local:** default `true`. **GitHub Actions:** default `false` (Indeed blocks GHA IPs). Set secret `true` only if you have a working path (self-hosted / proxy). |
+| `INCLUDE_REMOTE` | Default `true` — also scrape JobStreet **Remote** (`workarrangement=3`) |
+| `REMOTE_LOCATION` | Default `philippines` for the remote-only pass (WFH is often nationwide) |
 
 ## Local
 
@@ -69,7 +71,9 @@ python notify.py --once
 | `JOBSTREET_URL` | No | Only if KEYWORDS empty |
 | `INDEED_URL` | No | Only if KEYWORDS empty |
 | `ENABLE_JOBSTREET` | No | Default on; set `false` to disable |
-| `ENABLE_INDEED` | No | Default on; set `false` to disable |
+| `ENABLE_INDEED` | No | Default **off** on GHA (Indeed CF). Set `true` to force-try |
+| `INCLUDE_REMOTE` | No | Default on — extra JobStreet Remote pass |
+| `REMOTE_LOCATION` | No | Default `philippines` |
 | `RESEND_ALL` | No | `true` once to dump all current matches |
 
 3. **Actions → JobStreet + Indeed Telegram Notify → Run workflow**

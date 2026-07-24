@@ -99,6 +99,8 @@ jobs:
           INDEED_LOCATION: ${{ secrets.INDEED_LOCATION }}
           ENABLE_JOBSTREET: ${{ secrets.ENABLE_JOBSTREET }}
           ENABLE_INDEED: ${{ secrets.ENABLE_INDEED }}
+          INCLUDE_REMOTE: ${{ secrets.INCLUDE_REMOTE }}
+          REMOTE_LOCATION: ${{ secrets.REMOTE_LOCATION }}
           RESEND_ALL: ${{ secrets.RESEND_ALL }}
           MAX_PAGES: "2"
           REQUEST_DELAY_SECONDS: "2"
@@ -118,7 +120,11 @@ jobs:
           #                know it works, or use a self-hosted runner / proxy)
           if [ -z "$ENABLE_JOBSTREET" ]; then export ENABLE_JOBSTREET=true; fi
           if [ -z "$ENABLE_INDEED" ]; then export ENABLE_INDEED=false; fi
+          # Also scrape JobStreet Remote (workarrangement=3), PH-wide by default
+          if [ -z "$INCLUDE_REMOTE" ]; then export INCLUDE_REMOTE=true; fi
+          if [ -z "$REMOTE_LOCATION" ]; then export REMOTE_LOCATION=philippines; fi
           echo "ENABLE_JOBSTREET=$ENABLE_JOBSTREET ENABLE_INDEED=$ENABLE_INDEED"
+          echo "INCLUDE_REMOTE=$INCLUDE_REMOTE REMOTE_LOCATION=$REMOTE_LOCATION"
           if [ -z "$KEYWORDS" ]; then
             echo "KEYWORDS empty/unset - default non-voice Cebu on each site"
           else
