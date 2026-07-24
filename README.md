@@ -33,6 +33,8 @@ python notify.py --once       # both sources → Telegram (needs TELEGRAM_* env)
 | `INDEED_URL` | Optional Indeed URL when KEYWORDS empty |
 | `ENABLE_JOBSTREET` | Default `true` |
 | `ENABLE_INDEED` | Local default `true`; **GHA default `false`** (Indeed blocks runner IPs) |
+| `INCLUDE_REMOTE` | Default `true` — also scrape JobStreet Remote (WFH) |
+| `REMOTE_LOCATION` | Default `philippines` for remote-only pass |
 | `RESEND_ALL` | Send all current matches once |
 
 Default searches are hard-coded (non-voice + Cebu) when `KEYWORDS` and the URL secrets are empty.
