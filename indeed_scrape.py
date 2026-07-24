@@ -244,8 +244,11 @@ def scrape_indeed_search(
     if session is None:
         session = make_session()
 
+    # Prefer curl_cffi for Indeed even when JobStreet uses FORCE_SELENIUM
+    # (GHA Selenium often gets empty Indeed pages). Force only via
+    # FORCE_SELENIUM_INDEED or an explicit force_selenium=True argument.
     if force_selenium is None:
-        force_selenium = (os.environ.get("FORCE_SELENIUM") or "").lower() in (
+        force_selenium = (os.environ.get("FORCE_SELENIUM_INDEED") or "").lower() in (
             "1",
             "true",
             "yes",
