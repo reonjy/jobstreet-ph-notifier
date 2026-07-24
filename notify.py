@@ -19,6 +19,8 @@ Env / GitHub Actions secrets:
                       empty / unset = default non-voice Cebu on each site
   JOBSTREET_LOCATION  (optional) default "cebu"
   JOBSTREET_URL       (optional; only when KEYWORDS empty)
+  INCLUDE_REMOTE      (optional) default true — also scrape Remote (workarrangement=3)
+  REMOTE_LOCATION     (optional) default "philippines" for remote-only pass
   INDEED_URL          (optional; only when KEYWORDS empty)
   INDEED_LOCATION     (optional) default "Cebu"
   ENABLE_JOBSTREET    (optional) default true
@@ -96,6 +98,8 @@ def load_settings() -> dict:
         os.environ.get("KEYWORDS") if "KEYWORDS" in os.environ else None
     )
     location = _env("JOBSTREET_LOCATION", DEFAULT_LOCATION) or DEFAULT_LOCATION
+    include_remote = _truthy("INCLUDE_REMOTE", "true")
+    remote_location = _env("REMOTE_LOCATION", "philippines") or "philippines"
     indeed_location = (
         _env("INDEED_LOCATION", DEFAULT_INDEED_LOCATION) or DEFAULT_INDEED_LOCATION
     )
@@ -129,6 +133,8 @@ def load_settings() -> dict:
         "indeed_url": indeed_url,
         "keywords": keywords,
         "location": location,
+        "include_remote": include_remote,
+        "remote_location": remote_location,
         "indeed_location": indeed_location,
         "enable_jobstreet": enable_jobstreet,
         "enable_indeed": enable_indeed,
@@ -222,6 +228,7 @@ def format_job_message(job: dict) -> str:
     salary = html.escape(job.get("salary") or "Not stated")
     etype = html.escape(job.get("employment_type") or "—")
     listed = html.escape(job.get("listed") or "—")
+    work_arr = html.escape(job.get("work_arrangement") or "")
     desc = html.escape(job.get("description") or "")
     if len(desc) > 280:
         desc = desc[:277] + "…"
@@ -237,6 +244,8 @@ def format_job_message(job: dict) -> str:
         f"⏱ <b>Type:</b> {etype}",
         f"📅 <b>Listed:</b> {listed}",
     ]
+    if work_arr:
+        lines.append(f"🏠 <b>Work setup:</b> {work_arr}")
     if sub:
         lines.append(f"🏷 <b>Class:</b> {sub}")
     kw = html.escape(job.get("matched_keyword") or "")
@@ -301,6 +310,8 @@ def scrape_all(settings: dict) -> list[dict]:
                     max_pages=max_pages,
                     delay=delay,
                     session=session,
+                    include_remote=bool(settings.get("include_remote", True)),
+                    remote_location=settings.get("remote_location") or "philippines",
                 )
                 js_jobs = _tag_source(js_jobs, "jobstreet")
                 print(f"  JobStreet: {len(js_jobs)} job(s)")
@@ -323,13 +334,14 @@ def scrape_all(settings: dict) -> list[dict]:
                 print("  Keywords: (default non-voice)")
                 print(f"  URL: {settings['indeed_url']}")
             try:
+                # Own session for Indeed so JobStreet Referer does not poison requests
                 ind_jobs = scrape_indeed_keywords(
                     keywords=keywords,
                     search_url=settings["indeed_url"],
                     location=settings.get("indeed_location") or DEFAULT_INDEED_LOCATION,
                     max_pages=max_pages,
                     delay=delay,
-                    session=session,
+                    session=None,
                 )
                 ind_jobs = _tag_source(ind_jobs, "indeed")
                 print(f"  Indeed: {len(ind_jobs)} job(s)")
@@ -584,6 +596,12 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  JobStreet: {settings['search_url']}")
         if settings.get("enable_indeed", True):
             print(f"  Indeed   : {settings['indeed_url']}")
+    if settings.get("enable_jobstreet", True):
+        print(
+            f"  Remote   : "
+            f"{'ON' if settings.get('include_remote', True) else 'OFF'} "
+            f"(loc={settings.get('remote_location') or 'philippines'})"
+        )
     print(f"  Max pages: {settings['max_pages']} (per source / keyword)")
     print(f"  Interval : {interval} min" + (" (single run)" if args.once else ""))
     print(f"  State    : {state_path}")
