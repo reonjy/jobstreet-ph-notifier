@@ -10,6 +10,8 @@
 #   JOBSTREET_LOCATION / INDEED_LOCATION (optional)
 #   ENABLE_JOBSTREET (optional; default true on GHA)
 #   ENABLE_INDEED    (optional; default false on GHA — Indeed blocks runner IPs)
+#   INCLUDE_REMOTE   (optional; default true — also scrape Remote WFH)
+#   REMOTE_LOCATION  (optional; default philippines)
 #   RESEND_ALL         (optional) true once to dump current matches
 #
 # External cron (cron-job.org) should POST:
@@ -105,8 +107,6 @@ jobs:
           MAX_PAGES: "2"
           REQUEST_DELAY_SECONDS: "2"
           SEND_ON_FIRST_RUN: "false"
-          # GitHub runner IPs often get HTTP 403 from JobStreet/Cloudflare;
-          # Selenium + real Chrome bypasses that (same idea as CSC notifier).
           FORCE_SELENIUM: "true"
           HEADLESS: "true"
           STATE_FILE: state/seen_jobs.json
@@ -114,13 +114,8 @@ jobs:
           mkdir -p state
           echo "=== Poll start $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
           echo "Event: ${{ github.event_name }}"
-          # Defaults when secrets are empty:
-          #   JobStreet ON (works on GHA)
-          #   Indeed OFF  (Indeed blocks GHA IPs / Cloudflare — enable only if you
-          #                know it works, or use a self-hosted runner / proxy)
           if [ -z "$ENABLE_JOBSTREET" ]; then export ENABLE_JOBSTREET=true; fi
           if [ -z "$ENABLE_INDEED" ]; then export ENABLE_INDEED=false; fi
-          # Also scrape JobStreet Remote (workarrangement=3), PH-wide by default
           if [ -z "$INCLUDE_REMOTE" ]; then export INCLUDE_REMOTE=true; fi
           if [ -z "$REMOTE_LOCATION" ]; then export REMOTE_LOCATION=philippines; fi
           echo "ENABLE_JOBSTREET=$ENABLE_JOBSTREET ENABLE_INDEED=$ENABLE_INDEED"
